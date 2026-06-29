@@ -921,6 +921,10 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 	gi2c->err = 0;
 	reinit_completion(&gi2c->done);
 	ret = pm_runtime_get_sync(gi2c->se.dev);
+	if (ret == -EACCES) {
+		dev_warn(gi2c->se.dev, "Runtime PM is disabled:%d\n", ret);
+		ret = 0;
+	}
 	if (ret < 0) {
 		dev_err(gi2c->se.dev, "error turning SE resources:%d\n", ret);
 		pm_runtime_put_noidle(gi2c->se.dev);
@@ -1064,7 +1068,8 @@ static int geni_i2c_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, gi2c);
 
 	/* Keep interrupts disabled initially to allow for low-power modes */
-	ret = devm_request_irq(dev, gi2c->irq, geni_i2c_irq, IRQF_NO_AUTOEN,
+	ret = devm_request_irq(dev, gi2c->irq, geni_i2c_irq,
+			       IRQF_NO_AUTOEN | IRQF_NO_SUSPEND | IRQF_EARLY_RESUME,
 			       dev_name(dev), gi2c);
 	if (ret)
 		return dev_err_probe(dev, ret,
@@ -1282,7 +1287,12 @@ static int __maybe_unused geni_i2c_resume_noirq(struct device *dev)
 	if (ret)
 		return ret;
 
+	/* Enforced disable_depth = 0 to actually enable runtime PM during noirq phase */
+	if (!pm_runtime_enabled(dev))
+		pm_runtime_enable(dev);
+
 	i2c_mark_adapter_resumed(&gi2c->adap);
+
 	return 0;
 }
 
